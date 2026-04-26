@@ -1,16 +1,17 @@
 import json
 import os
 import random
-import threading
 import time
 from datetime import datetime
 from flask import Flask, request, jsonify
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.executors.pool import ThreadPoolExecutor
+import threading
 
 # ========== KONFIGURASI ==========
 TOKEN = "8736769212:AAHTR0awcVGQROy0iX3lmdtPGbxo8HCaW5U"
-ADMIN_ID = 8736769212
+ADMIN_ID = 7176181382
 # =================================
 
 app = Flask(__name__)
@@ -23,6 +24,9 @@ CONFIG_FILE = "config.json"
 
 # Variabel global
 last_broadcast_log = []
+scheduler = None
+_broadcast_lock = threading.Lock()  # 🔧 Cegah broadcast ganda
+is_broadcasting = False
 
 # ============ FUNGSI LOAD DATA ============
 def load_users():
@@ -129,7 +133,7 @@ def send_telegram_photo(chat_id, photo_url, caption, reply_markup=None):
         payload["reply_markup"] = json.dumps(reply_markup)
     
     try:
-        response = requests.post(url, json=payload, timeout=30)
+        response = requests.post(url, json=payload, timeout=10)  # 🔧 Kurangi timeout ke 10 detik
         return response.json()
     except Exception as e:
         print(f"Error send photo: {e}")
@@ -147,7 +151,7 @@ def send_telegram_message(chat_id, text, reply_markup=None):
         payload["reply_markup"] = json.dumps(reply_markup)
     
     try:
-        response = requests.post(url, json=payload, timeout=30)
+        response = requests.post(url, json=payload, timeout=10)  # 🔧 Kurangi timeout ke 10 detik
         return response.json()
     except Exception as e:
         print(f"Error send message: {e}")
@@ -232,82 +236,124 @@ Dengan membagikan nomor telepon, Anda akan mendapatkan update promo terbaru dan 
     except Exception as e:
         print(f"Error send contact request: {e}")
 
-# ============ BROADCAST OTOMATIS (DIJAMIN JALAN) ============
+# ============ BROADCAST OTOMATIS (DIPERBAIKI) ============
 broadcast_count = 0
 broadcast_history = []
 
 def do_broadcast():
-    """Fungsi broadcast yang akan dijalankan setiap interval"""
-    global broadcast_count, broadcast_history
+    """Fungsi broadcast yang akan dijalankan setiap interval - DIOPTIMASI"""
+    global broadcast_count, broadcast_history, is_broadcasting
     
-    print("=" * 60)
-    print(f"📢 [BROADCAST] Dimulai pada {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    if not promos:
-        print("❌ Tidak ada promo untuk broadcast")
+    # 🔧 Cegah broadcast ganda/overlap
+    if is_broadcasting:
+        print("⚠️ Broadcast sedang berjalan, skip...")
         return
     
-    # Pilih promo acak
-    promo = random.choice(promos)
-    users_list = list(load_users())
+    with _broadcast_lock:
+        is_broadcasting = True
     
-    if len(users_list) == 0:
-        print("⚠️ Belum ada user yang terdaftar. Broadcast skipped.")
-        return
-    
-    print(f"📢 Judul: {promo['title']}")
-    print(f"👥 Target: {len(users_list)} user")
-    print(f"🖼️ Gambar: {'YA' if promo.get('image_url') else 'TIDAK'}")
-    
-    success = 0
-    fail = 0
-    
-    for user_id in users_list:
-        result = send_promo_with_image(user_id, promo)
-        if result:
-            success += 1
-        else:
-            fail += 1
-        time.sleep(0.1)  # Jeda 0.1 detik antar kirim
-    
-    broadcast_count += 1
-    
-    # Simpan history
-    broadcast_history.insert(0, {
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "title": promo['title'],
-        "success": success,
-        "fail": fail,
-        "total": len(users_list)
-    })
-    
-    # Keep hanya 10 history terakhir
-    while len(broadcast_history) > 10:
-        broadcast_history.pop()
-    
-    print(f"✅ Broadcast selesai!")
-    print(f"✅ Berhasil: {success} user")
-    print(f"❌ Gagal: {fail} user")
-    print(f"📊 Total broadcast ke-{broadcast_count}")
-    print("=" * 60)
+    try:
+        print("=" * 60)
+        print(f"📢 [BROADCAST] Dimulai pada {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        if not promos:
+            print("❌ Tidak ada promo untuk broadcast")
+            return
+        
+        # Pilih promo acak
+        promo = random.choice(promos)
+        users_list = list(load_users())
+        
+        if len(users_list) == 0:
+            print("⚠️ Belum ada user yang terdaftar. Broadcast skipped.")
+            return
+        
+        print(f"📢 Judul: {promo['title']}")
+        print(f"👥 Target: {len(users_list)} user")
+        
+        success = 0
+        fail = 0
+        
+        # 🔧 Kirim pesan ASYNC & batasi kecepatan
+        for idx, user_id in enumerate(users_list):
+            try:
+                result = send_promo_with_image(user_id, promo)
+                if result and result.get("ok"):
+                    success += 1
+                else:
+                    fail += 1
+            except Exception as e:
+                print(f"Error ke {user_id}: {e}")
+                fail += 1
+            
+            # 🔧 Delay 0.5 detik antar user (biar gak kena rate limit)
+            time.sleep(0.5)
+            
+            # 🔧 Cetak progress setiap 10 user
+            if (idx + 1) % 10 == 0:
+                print(f"Progress: {idx + 1}/{len(users_list)} (✅{success} ❌{fail})")
+        
+        broadcast_count += 1
+        
+        # Simpan history
+        broadcast_history.insert(0, {
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "title": promo['title'],
+            "success": success,
+            "fail": fail,
+            "total": len(users_list)
+        })
+        
+        # Keep hanya 10 history terakhir
+        while len(broadcast_history) > 10:
+            broadcast_history.pop()
+        
+        print(f"✅ Broadcast selesai!")
+        print(f"✅ Berhasil: {success} user")
+        print(f"❌ Gagal: {fail} user")
+        print(f"📊 Total broadcast ke-{broadcast_count}")
+        print("=" * 60)
+        
+    except Exception as e:
+        print(f"❌ Error di broadcast: {e}")
+    finally:
+        is_broadcasting = False
 
 def start_scheduler():
-    """Memulai scheduler untuk broadcast otomatis"""
+    """Memulai scheduler untuk broadcast otomatis - DIPERBAIKI"""
+    global scheduler
+    
     interval_minutes = promo_settings.get("broadcast_interval_minutes", 20)
     
-    scheduler = BackgroundScheduler()
+    # 🔧 Konfigurasi executor dengan max_workers=1 biar gak overlap
+    executors = {
+        'default': ThreadPoolExecutor(max_workers=1)
+    }
+    job_defaults = {
+        'coalesce': True,      # Gabungkan job yang missed
+        'max_instances': 1,    # Maksimal 1 instance job berjalan
+        'misfire_grace_time': 60  # Kasih waktu 60 detik untuk missed job
+    }
+    
+    scheduler = BackgroundScheduler(executors=executors, job_defaults=job_defaults)
+    
+    # 🔧 Jangan langsung execute, kasih delay 5 detik pertama
+    from datetime import datetime, timedelta
+    first_run = datetime.now() + timedelta(seconds=5)
+    
     scheduler.add_job(
         func=do_broadcast,
         trigger="interval",
         minutes=interval_minutes,
         id="broadcast_job",
-        next_run_time=datetime.now()  # Langsung jalan pertama kali
+        next_run_time=first_run  # Delay 5 detik
     )
     scheduler.start()
     
     print(f"⏰ Scheduler dimulai!")
-    print(f"📅 Broadcast pertama: SEKARANG (dalam beberapa detik)")
+    print(f"📅 Broadcast pertama: dalam 5 detik")
     print(f"🔄 Interval: setiap {interval_minutes} menit")
+    print(f"⚙️ Konfigurasi: max_instances=1, coalesce=True")
     
     return scheduler
 
@@ -318,7 +364,10 @@ def webhook():
         data = request.get_json()
         
         if not data:
-            return jsonify({"status": "ok"})
+            return jsonify({"status": "ok"}), 200
+        
+        # 🔧 LANGSUNG RESPON 200 biar gak dianggap gagal oleh Telegram
+        # Proses dilanjutkan di background (opsional, tapi biar cepat)
         
         # Proses message
         if "message" in data:
@@ -395,7 +444,6 @@ Member yang sudah share kontak berhak mendapatkan bonus special!
                 send_telegram_message(chat_id, help_msg)
             
             elif text == "/status" and str(chat_id) == str(ADMIN_ID):
-                next_broadcast = "Sedang berjalan..."
                 status_msg = f"""📊 *STATUS BOT*
 
 🔄 Status: ✅ AKTIF
@@ -416,8 +464,10 @@ Member yang sudah share kontak berhak mendapatkan bonus special!
             
             elif text == "/test_broadcast" and str(chat_id) == str(ADMIN_ID):
                 send_telegram_message(chat_id, "⏳ Menjalankan broadcast test...")
-                do_broadcast()
-                send_telegram_message(chat_id, "✅ Broadcast test selesai! Cek log.")
+                # 🔧 Jalankan broadcast di thread terpisah biar webhook cepat respon
+                import threading
+                threading.Thread(target=do_broadcast).start()
+                send_telegram_message(chat_id, "✅ Broadcast test dimulai! Cek log.")
             
             elif text == "/contacts" and str(chat_id) == str(ADMIN_ID):
                 contacts = get_all_contacts()
@@ -463,10 +513,12 @@ Member yang sudah share kontak berhak mendapatkan bonus special!
             url_answer = f"https://api.telegram.org/bot{TOKEN}/answerCallbackQuery"
             requests.post(url_answer, json={"callback_query_id": callback["id"]})
         
-        return jsonify({"status": "ok"})
+        # 🔧 PASTIKAN RESPON 200 OK CEPAT
+        return jsonify({"status": "ok"}), 200
+        
     except Exception as e:
         print(f"Webhook error: {e}")
-        return jsonify({"status": "error"}), 500
+        return jsonify({"status": "error"}), 200  # 🔧 Tetap return 200 biar gak retry
 
 # ============ FLASK ROUTES ============
 @app.route('/')
@@ -531,14 +583,18 @@ def api_contacts():
 @app.route('/api/trigger_broadcast', methods=['POST'])
 def trigger_broadcast():
     """Manual trigger broadcast via API"""
-    do_broadcast()
-    return jsonify({'status': 'broadcast_triggered', 'time': datetime.now().isoformat()})
+    import threading
+    threading.Thread(target=do_broadcast).start()
+    return jsonify({'status': 'broadcast_started', 'time': datetime.now().isoformat()})
 
 # ============ MAIN ============
 if __name__ == "__main__":
     print("=" * 60)
     print("🤖 KAJIAN4D BOT TELEGRAM - DENGAN BROADCAST OTOMATIS")
     print("=" * 60)
+    
+    # 🔧 Cek environment biar gak double start di debug mode
+    is_main_process = os.environ.get('WERKZEUG_RUN_MAIN') != 'true'
     
     # Cek koneksi
     try:
@@ -557,13 +613,18 @@ if __name__ == "__main__":
     print(f"📞 Total kontak: {get_contact_count()}")
     print("=" * 60)
     
-    # START SCHEDULER (PASTI JALAN)
-    scheduler = start_scheduler()
+    # 🔧 START SCHEDULER (hanya di proses utama, bukan di reloader)
+    if is_main_process:
+        scheduler = start_scheduler()
+    else:
+        print("⚠️ Debug reloader mode - Scheduler tidak di-start di proses reloader")
     
     print("\n📱 Buka URL /set_webhook untuk mengaktifkan webhook")
     print("📱 Kirim /start ke bot di Telegram")
     print("📢 Broadcast akan berjalan OTOMATIS setiap 20 menit!")
+    print("\n💡 TIPS: Kirim /test_broadcast ke bot untuk test manual")
     print("=" * 60)
     
+    # 🔧 Pastikan debug=False untuk production
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, debug=False)  # 🔧 debug=False sangat penting!
