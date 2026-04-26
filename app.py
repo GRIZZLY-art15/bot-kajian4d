@@ -13,8 +13,8 @@ import threading
 
 # ========== KONFIGURASI ==========
 TOKEN = "8736769212:AAHTR0awcVGQROy0iX3lmdtPGbxo8HCaW5U"
-ADMIN_ID = 8736769212
-ADMIN_PASSWORD_HASH = hashlib.sha256("Bos210514".encode()).hexdigest()  # Password: Bos210514
+ADMIN_ID = 7176181382
+ADMIN_PASSWORD_HASH = hashlib.sha256("admin123".encode()).hexdigest()  # Password: admin123
 # =================================
 
 app = Flask(__name__)
@@ -24,12 +24,15 @@ CONTACTS_FILE = "contacts.json"
 DATA_FILE = "users.json"
 PROMO_FILE = "promo.json"
 CONFIG_FILE = "config.json"
+GROUPS_FILE = "groups.json"  # File untuk menyimpan daftar grup
 
 # Variabel global
 last_broadcast_log = []
 scheduler = None
 _broadcast_lock = threading.Lock()
 is_broadcasting = False
+broadcast_job_id = "broadcast_job"
+broadcast_enabled = True  # Status broadcast (ON/OFF)
 
 # ============ FUNGSI LOAD DATA ============
 def load_users():
@@ -48,10 +51,10 @@ def load_promos():
     try:
         with open(PROMO_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return data.get("promos", []), data.get("settings", {"broadcast_interval_minutes": 20, "send_image": True})
+            return data.get("promos", []), data.get("settings", {"broadcast_interval_minutes": 20, "send_image": True, "broadcast_to_groups": True})
     except Exception as e:
         print(f"Error loading promos: {e}")
-        return [], {"broadcast_interval_minutes": 20, "send_image": True}
+        return [], {"broadcast_interval_minutes": 20, "send_image": True, "broadcast_to_groups": True}
 
 def load_config():
     try:
@@ -60,14 +63,30 @@ def load_config():
     except:
         return {"welcome_message": "🌟 SELAMAT DATANG DI KAJIAN4D OFFICIAL 🌟", "website_url": "https://siteq.link/kajian4d"}
 
+def load_groups():
+    """Load daftar grup Telegram"""
+    try:
+        with open(GROUPS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return []
+
+def save_groups(groups):
+    """Simpan daftar grup Telegram"""
+    with open(GROUPS_FILE, "w", encoding="utf-8") as f:
+        json.dump(groups, f, indent=2, ensure_ascii=False)
+
 # Load data
 users = load_users()
 promos, promo_settings = load_promos()
 config = load_config()
+groups = load_groups()
 
 print(f"✅ Loaded {len(promos)} promos")
+print(f"✅ Loaded {len(groups)} groups")
 print(f"✅ Broadcast interval: {promo_settings.get('broadcast_interval_minutes', 20)} minutes")
 print(f"✅ Send image: {promo_settings.get('send_image', True)}")
+print(f"✅ Broadcast to groups: {promo_settings.get('broadcast_to_groups', True)}")
 
 # ============ FUNGSI KONTAK ============
 def save_contact(user_id, username, first_name, last_name, phone_number):
@@ -236,12 +255,26 @@ Dengan membagikan nomor telepon, Anda akan mendapatkan update promo terbaru dan 
     except Exception as e:
         print(f"Error send contact request: {e}")
 
+def send_to_group(group_id, promo):
+    """Kirim promo ke grup Telegram"""
+    try:
+        result = send_promo_with_image(group_id, promo)
+        return result is not None and result.get("ok")
+    except Exception as e:
+        print(f"Error send to group {group_id}: {e}")
+        return False
+
 # ============ BROADCAST OTOMATIS ============
 broadcast_count = 0
 broadcast_history = []
 
 def do_broadcast():
+    """Fungsi broadcast yang akan dijalankan setiap interval"""
     global broadcast_count, broadcast_history, is_broadcasting
+    
+    if not broadcast_enabled:
+        print("⚠️ Broadcast dimatikan oleh admin, skip...")
+        return
     
     if is_broadcasting:
         print("⚠️ Broadcast sedang berjalan, skip...")
@@ -259,18 +292,27 @@ def do_broadcast():
             return
         
         promo = random.choice(promos)
-        users_list = list(load_users())
         
-        if len(users_list) == 0:
-            print("⚠️ Belum ada user yang terdaftar. Broadcast skipped.")
+        # Broadcast ke User Pribadi
+        users_list = list(load_users())
+        broadcast_to_groups = promo_settings.get('broadcast_to_groups', True)
+        groups_list = load_groups() if broadcast_to_groups else []
+        
+        total_targets = len(users_list) + len(groups_list)
+        
+        if total_targets == 0:
+            print("⚠️ Tidak ada target broadcast. Broadcast skipped.")
             return
         
         print(f"📢 Judul: {promo['title']}")
-        print(f"👥 Target: {len(users_list)} user")
+        print(f"👥 Target Personal: {len(users_list)} user")
+        print(f"👥 Target Grup: {len(groups_list)} grup")
+        print(f"📊 Total Target: {total_targets}")
         
         success = 0
         fail = 0
         
+        # Kirim ke user pribadi
         for idx, user_id in enumerate(users_list):
             try:
                 result = send_promo_with_image(user_id, promo)
@@ -279,13 +321,24 @@ def do_broadcast():
                 else:
                     fail += 1
             except Exception as e:
-                print(f"Error ke {user_id}: {e}")
+                print(f"Error ke user {user_id}: {e}")
                 fail += 1
-            
+            time.sleep(0.3)
+        
+        # Kirim ke grup
+        for group in groups_list:
+            try:
+                group_id = group.get('id')
+                if send_to_group(group_id, promo):
+                    success += 1
+                    print(f"✅ Berhasil kirim ke grup: {group.get('name')}")
+                else:
+                    fail += 1
+                    print(f"❌ Gagal kirim ke grup: {group.get('name')}")
+            except Exception as e:
+                print(f"Error ke grup {group.get('name')}: {e}")
+                fail += 1
             time.sleep(0.5)
-            
-            if (idx + 1) % 10 == 0:
-                print(f"Progress: {idx + 1}/{len(users_list)} (✅{success} ❌{fail})")
         
         broadcast_count += 1
         
@@ -294,15 +347,17 @@ def do_broadcast():
             "title": promo['title'],
             "success": success,
             "fail": fail,
-            "total": len(users_list)
+            "total": total_targets,
+            "users": len(users_list),
+            "groups": len(groups_list)
         })
         
-        while len(broadcast_history) > 10:
+        while len(broadcast_history) > 20:
             broadcast_history.pop()
         
         print(f"✅ Broadcast selesai!")
-        print(f"✅ Berhasil: {success} user")
-        print(f"❌ Gagal: {fail} user")
+        print(f"✅ Berhasil: {success} target")
+        print(f"❌ Gagal: {fail} target")
         print(f"📊 Total broadcast ke-{broadcast_count}")
         print("=" * 60)
         
@@ -312,6 +367,7 @@ def do_broadcast():
         is_broadcasting = False
 
 def start_scheduler():
+    """Memulai scheduler untuk broadcast otomatis"""
     global scheduler
     
     interval_minutes = promo_settings.get("broadcast_interval_minutes", 20)
@@ -327,23 +383,43 @@ def start_scheduler():
     
     scheduler = BackgroundScheduler(executors=executors, job_defaults=job_defaults)
     
-    from datetime import datetime, timedelta
-    first_run = datetime.now() + timedelta(seconds=5)
-    
     scheduler.add_job(
         func=do_broadcast,
         trigger="interval",
         minutes=interval_minutes,
-        id="broadcast_job",
-        next_run_time=first_run
+        id=broadcast_job_id,
+        next_run_time=datetime.now()
     )
     scheduler.start()
     
     print(f"⏰ Scheduler dimulai!")
-    print(f"📅 Broadcast pertama: dalam 5 detik")
     print(f"🔄 Interval: setiap {interval_minutes} menit")
     
     return scheduler
+
+def restart_scheduler():
+    """Restart scheduler dengan interval baru"""
+    global scheduler, broadcast_enabled
+    
+    if scheduler:
+        try:
+            scheduler.remove_job(broadcast_job_id)
+        except:
+            pass
+    
+    interval_minutes = promo_settings.get("broadcast_interval_minutes", 20)
+    
+    if broadcast_enabled:
+        scheduler.add_job(
+            func=do_broadcast,
+            trigger="interval",
+            minutes=interval_minutes,
+            id=broadcast_job_id,
+            next_run_time=datetime.now()
+        )
+        print(f"🔄 Scheduler direstart dengan interval {interval_minutes} menit")
+    else:
+        print("⏸️ Broadcast dalam keadaan mati")
 
 # ============ ADMIN PANEL ============
 def login_required(f):
@@ -444,6 +520,8 @@ def admin_panel():
             .stat-card { background: rgba(255,255,255,0.1); border-radius: 15px; padding: 20px; text-align: center; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); }
             .stat-card h3 { font-size: 2em; margin-bottom: 5px; }
             .stat-card p { opacity: 0.8; }
+            .stat-card.broadcast-on { border-left: 4px solid #51cf66; }
+            .stat-card.broadcast-off { border-left: 4px solid #ff6b6b; }
             .section { background: rgba(255,255,255,0.05); border-radius: 15px; padding: 20px; margin-bottom: 30px; border: 1px solid rgba(255,255,255,0.1); }
             .section h2 { margin-bottom: 20px; color: #00d4ff; }
             table { width: 100%; border-collapse: collapse; }
@@ -454,6 +532,9 @@ def admin_panel():
             button:hover { transform: translateY(-2px); }
             .btn-danger { background: linear-gradient(135deg, #ff6b6b, #cc4444); }
             .btn-success { background: linear-gradient(135deg, #51cf66, #37b24d); }
+            .btn-warning { background: linear-gradient(135deg, #ffd93d, #f9a825); color: #1a1a2e; }
+            .btn-stop { background: linear-gradient(135deg, #ff6b6b, #cc4444); }
+            .btn-start { background: linear-gradient(135deg, #51cf66, #37b24d); }
             input, textarea, select { width: 100%; padding: 10px; margin: 10px 0; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; }
             textarea { min-height: 100px; }
             .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 1000; }
@@ -464,73 +545,291 @@ def admin_panel():
             .tab.active { background: #00d4ff; color: #1a1a2e; }
             .tab-content { display: none; }
             .tab-content.active { display: block; }
+            .group-item { background: rgba(255,255,255,0.05); border-radius: 10px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+            .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; }
+            .status-on { background: #51cf66; color: #1a1a2e; }
+            .status-off { background: #ff6b6b; color: white; }
             @media (max-width: 768px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } .tabs { justify-content: center; } }
         </style>
     </head>
     <body>
         <div class="container">
             <h1>🎯 Admin Panel - KAJIAN4D Bot</h1>
+            
             <div class="stats-grid" id="stats">
                 <div class="stat-card"><h3 id="totalUsers">0</h3><p>Total User</p></div>
                 <div class="stat-card"><h3 id="totalPromos">0</h3><p>Total Promo</p></div>
-                <div class="stat-card"><h3 id="broadcastInterval">1</h3><p>Broadcast (Jam)</p></div>
-                <div class="stat-card"><h3 id="randomMode">Random</h3><p>Mode Promo</p></div>
+                <div class="stat-card"><h3 id="totalGroups">0</h3><p>Total Grup</p></div>
+                <div class="stat-card" id="broadcastStatusCard"><h3 id="broadcastStatus">Loading...</h3><p>Status Broadcast</p></div>
             </div>
+            
             <div class="tabs">
-                <div class="tab active" onclick="showTab('promos')">📋 Daftar Promo</div>
+                <div class="tab active" onclick="showTab('broadcast_control')">📡 Kontrol Broadcast</div>
+                <div class="tab" onclick="showTab('promos')">📋 Daftar Promo</div>
                 <div class="tab" onclick="showTab('add')">➕ Tambah Promo</div>
-                <div class="tab" onclick="showTab('broadcast')">📢 Broadcast</div>
-                <div class="tab" onclick="showTab('users')">👥 User List</div>
+                <div class="tab" onclick="showTab('groups')">👥 Grup Telegram</div>
+                <div class="tab" onclick="showTab('users')">👤 User List</div>
+                <div class="tab" onclick="showTab('settings')">⚙️ Pengaturan</div>
                 <div class="tab" onclick="logout()">🚪 Logout</div>
             </div>
-            <div id="tab-promos" class="tab-content active"><div class="section"><h2>📋 Daftar Semua Promo</h2><div id="promosList"></div></div></div>
-            <div id="tab-add" class="tab-content"><div class="section"><h2>➕ Tambah Promo Baru</h2><form id="addPromoForm"><input type="text" id="promoTitle" placeholder="Judul Promo" required><textarea id="promoMessage" placeholder="Pesan Promo (bisa pakai *bold*)" required></textarea><input type="url" id="promoImageUrl" placeholder="URL Gambar (opsional)"><input type="text" id="promoButtonText" placeholder="Teks Tombol" value="🔥 Klaim Bonus"><input type="url" id="promoButtonUrl" placeholder="URL Tombol" value="https://siteq.link/kajian4d"><button type="submit" class="btn-success">💾 Simpan Promo</button></form></div></div>
-            <div id="tab-broadcast" class="tab-content"><div class="section"><h2>📢 Broadcast Promo yang Sudah Ada</h2><div id="broadcastPromosList"></div></div></div>
-            <div id="tab-users" class="tab-content"><div class="section"><h2>👥 Daftar User Terdaftar</h2><div id="usersList"></div></div></div>
+            
+            <!-- Tab Kontrol Broadcast -->
+            <div id="tab-broadcast_control" class="tab-content active">
+                <div class="section">
+                    <h2>📡 Kontrol Broadcast Otomatis</h2>
+                    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;">
+                        <button id="btnStartBroadcast" class="btn-start" onclick="controlBroadcast('start')">▶️ START BROADCAST</button>
+                        <button id="btnStopBroadcast" class="btn-stop" onclick="controlBroadcast('stop')">⏸️ STOP BROADCAST</button>
+                        <button id="btnTestBroadcast" class="btn-warning" onclick="testBroadcast()">🔨 TEST BROADCAST SEKARANG</button>
+                    </div>
+                    <div id="broadcastControlMsg" style="margin-top: 15px;"></div>
+                </div>
+                
+                <div class="section">
+                    <h2>⚙️ Pengaturan Interval Broadcast</h2>
+                    <form id="intervalForm">
+                        <label>Interval Broadcast (Menit):</label>
+                        <input type="number" id="intervalMinutes" min="1" max="1440" value="20">
+                        <button type="submit" class="btn-success">💾 Simpan & Restart</button>
+                    </form>
+                </div>
+                
+                <div class="section">
+                    <h2>📊 History Broadcast</h2>
+                    <div id="broadcastHistory"></div>
+                </div>
+            </div>
+            
+            <!-- Tab Promo List -->
+            <div id="tab-promos" class="tab-content">
+                <div class="section">
+                    <h2>📋 Daftar Semua Promo</h2>
+                    <div id="promosList"></div>
+                </div>
+            </div>
+            
+            <!-- Tab Tambah Promo -->
+            <div id="tab-add" class="tab-content">
+                <div class="section">
+                    <h2>➕ Tambah Promo Baru</h2>
+                    <form id="addPromoForm">
+                        <input type="text" id="promoTitle" placeholder="Judul Promo" required>
+                        <textarea id="promoMessage" placeholder="Pesan Promo (bisa pakai *bold*)" required></textarea>
+                        <input type="url" id="promoImageUrl" placeholder="URL Gambar (opsional)">
+                        <input type="text" id="promoButtonText" placeholder="Teks Tombol" value="🔥 Klaim Bonus">
+                        <input type="url" id="promoButtonUrl" placeholder="URL Tombol" value="https://siteq.link/kajian4d">
+                        <button type="submit" class="btn-success">💾 Simpan Promo</button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Tab Grup Telegram -->
+            <div id="tab-groups" class="tab-content">
+                <div class="section">
+                    <h2>➕ Tambah Grup Baru</h2>
+                    <form id="addGroupForm">
+                        <input type="text" id="groupId" placeholder="ID Grup (contoh: -1001234567890)" required>
+                        <input type="text" id="groupName" placeholder="Nama Grup" required>
+                        <button type="submit" class="btn-success">💾 Tambah Grup</button>
+                    </form>
+                </div>
+                
+                <div class="section">
+                    <h2>👥 Daftar Grup Telegram</h2>
+                    <div id="groupsList"></div>
+                </div>
+            </div>
+            
+            <!-- Tab Users -->
+            <div id="tab-users" class="tab-content">
+                <div class="section">
+                    <h2>👥 Daftar User Terdaftar</h2>
+                    <div id="usersList"></div>
+                </div>
+            </div>
+            
+            <!-- Tab Settings -->
+            <div id="tab-settings" class="tab-content">
+                <div class="section">
+                    <h2>⚙️ Pengaturan Bot</h2>
+                    <form id="settingsForm">
+                        <label>Kirim ke Grup:</label>
+                        <select id="broadcastToGroups">
+                            <option value="true">Ya (Kirim ke grup juga)</option>
+                            <option value="false">Tidak (Hanya ke user pribadi)</option>
+                        </select>
+                        
+                        <label>Kirim Gambar:</label>
+                        <select id="sendImage">
+                            <option value="true">Ya</option>
+                            <option value="false">Tidak</option>
+                        </select>
+                        
+                        <label>URL Website:</label>
+                        <input type="url" id="websiteUrl" value="https://siteq.link/kajian4d">
+                        
+                        <label>Pesan Selamat Datang:</label>
+                        <textarea id="welcomeMessage" rows="5"></textarea>
+                        
+                        <button type="submit" class="btn-success">💾 Simpan Pengaturan</button>
+                    </form>
+                </div>
+            </div>
         </div>
+        
         <div id="editModal" class="modal"><div class="modal-content"><span class="close" onclick="closeModal()">&times;</span><h2>✏️ Edit Promo</h2><form id="editPromoForm"><input type="hidden" id="editPromoId"><input type="text" id="editTitle" placeholder="Judul Promo" required><textarea id="editMessage" placeholder="Pesan Promo" required></textarea><input type="url" id="editImageUrl" placeholder="URL Gambar"><input type="text" id="editButtonText" placeholder="Teks Tombol"><input type="url" id="editButtonUrl" placeholder="URL Tombol"><button type="submit" class="btn-success">💾 Update</button><button type="button" class="btn-danger" onclick="deletePromo()">🗑️ Hapus</button></form></div></div>
+        
         <script>
+            let broadcastEnabled = true;
+            
             function showTab(tabName) {
                 document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 document.getElementById(`tab-${tabName}`).classList.add('active');
                 event.target.classList.add('active');
                 if (tabName === 'users') loadUsers();
-                if (tabName === 'broadcast') loadBroadcastPromos();
+                if (tabName === 'groups') loadGroups();
+                if (tabName === 'broadcast_control') loadBroadcastHistory();
             }
+            
             async function loadStats() {
                 try {
                     const response = await fetch('/api/stats');
                     const data = await response.json();
                     document.getElementById('totalUsers').textContent = data.users || 0;
                     document.getElementById('totalPromos').textContent = data.promos || 0;
-                    document.getElementById('broadcastInterval').textContent = Math.floor(data.interval / 60) || 1;
+                    document.getElementById('totalGroups').textContent = data.groups || 0;
+                    broadcastEnabled = data.broadcast_enabled;
+                    const statusEl = document.getElementById('broadcastStatus');
+                    const statusCard = document.getElementById('broadcastStatusCard');
+                    if (broadcastEnabled) {
+                        statusEl.innerHTML = '✅ AKTIF';
+                        statusCard.className = 'stat-card broadcast-on';
+                    } else {
+                        statusEl.innerHTML = '⏸️ MATI';
+                        statusCard.className = 'stat-card broadcast-off';
+                    }
                 } catch(e) { console.log(e); }
             }
+            
+            async function loadBroadcastHistory() {
+                try {
+                    const response = await fetch('/api/broadcast_history');
+                    const history = await response.json();
+                    const container = document.getElementById('broadcastHistory');
+                    if (!history.length) {
+                        container.innerHTML = '<p>Belum ada history broadcast.</p>';
+                        return;
+                    }
+                    let html = '<table><thead><tr><th>Waktu</th><th>Judul</th><th>Personal</th><th>Grup</th><th>Sukses</th><th>Gagal</th></thead><tbody>';
+                    history.forEach(h => {
+                        html += `<tr><td>${h.time}</td><td>${h.title.substring(0, 30)}...</td><td>${h.users || 0}</td><td>${h.groups || 0}</td><td style="color:#51cf66">✅ ${h.success}</td><td style="color:#ff6b6b">❌ ${h.fail}</td></tr>`;
+                    });
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } catch(e) { console.log(e); }
+            }
+            
+            async function controlBroadcast(action) {
+                const response = await fetch(`/api/broadcast_control/${action}`, { method: 'POST' });
+                const result = await response.json();
+                const msgDiv = document.getElementById('broadcastControlMsg');
+                if (result.success) {
+                    msgDiv.innerHTML = `<div class="alert alert-success">✅ ${result.message}</div>`;
+                    loadStats();
+                    setTimeout(() => msgDiv.innerHTML = '', 3000);
+                } else {
+                    msgDiv.innerHTML = `<div class="alert alert-error">❌ ${result.message}</div>`;
+                }
+            }
+            
+            async function testBroadcast() {
+                if (!confirm('Kirim test broadcast sekarang?')) return;
+                const msgDiv = document.getElementById('broadcastControlMsg');
+                msgDiv.innerHTML = '<div class="alert">⏳ Mengirim broadcast test...</div>';
+                const response = await fetch('/api/test_broadcast', { method: 'POST' });
+                const result = await response.json();
+                msgDiv.innerHTML = `<div class="alert alert-success">✅ Broadcast test selesai! Terkirim ke ${result.sent} target, gagal ${result.failed}</div>`;
+                loadBroadcastHistory();
+                loadStats();
+                setTimeout(() => msgDiv.innerHTML = '', 5000);
+            }
+            
+            document.getElementById('intervalForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const minutes = document.getElementById('intervalMinutes').value;
+                const response = await fetch('/api/set_interval', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ interval_minutes: parseInt(minutes) })
+                });
+                const result = await response.json();
+                const msgDiv = document.getElementById('broadcastControlMsg');
+                if (result.success) {
+                    msgDiv.innerHTML = `<div class="alert alert-success">✅ ${result.message}</div>`;
+                    setTimeout(() => msgDiv.innerHTML = '', 3000);
+                } else {
+                    msgDiv.innerHTML = `<div class="alert alert-error">❌ ${result.message}</div>`;
+                }
+            });
+            
             async function loadPromos() {
                 try {
                     const response = await fetch('/api/promos');
                     const promos = await response.json();
                     const container = document.getElementById('promosList');
                     if (!promos.length) { container.innerHTML = '<p>Belum ada promo. Tambahkan promo baru!</p>'; return; }
-                    let html = '<table><thead><tr><th>ID</th><th>Judul</th><th>Aksi</th></tr></thead><tbody>';
+                    let html = '<td><thead><tr><th>ID</th><th>Judul</th><th>Aksi</th></tr></thead><tbody>';
                     promos.forEach(p => { html += `<tr><td>${p.id}</td><td>${p.title}</td><td><button onclick="editPromo(${p.id})">✏️ Edit</button><button class="btn-danger" onclick="deletePromoById(${p.id})">🗑️ Hapus</button></td></tr>`; });
-                    html += '</tbody></table>';
+                    html += '</tbody>\\{table}';
                     container.innerHTML = html;
                 } catch(e) { console.log(e); }
             }
-            async function loadBroadcastPromos() {
+            
+            async function loadGroups() {
                 try {
-                    const response = await fetch('/api/promos');
-                    const promos = await response.json();
-                    const container = document.getElementById('broadcastPromosList');
-                    if (!promos.length) { container.innerHTML = '<p>Belum ada promo.</p>'; return; }
-                    let html = '<div style="display: flex; flex-wrap: wrap; gap: 10px;">';
-                    promos.forEach(p => { html += `<button onclick="broadcastPromo(${p.id})" style="flex:1;min-width:200px;">📢 ${p.title}</button>`; });
-                    html += '</div>';
+                    const response = await fetch('/api/groups');
+                    const groups = await response.json();
+                    const container = document.getElementById('groupsList');
+                    if (!groups.length) { container.innerHTML = '<p>Belum ada grup. Tambahkan grup Telegram!</p>'; return; }
+                    let html = '';
+                    groups.forEach(g => {
+                        html += `
+                            <div class="group-item">
+                                <div>
+                                    <strong>${g.name}</strong><br>
+                                    <small>ID: ${g.id}</small>
+                                </div>
+                                <div>
+                                    <button onclick="testGroup(${g.id})" class="btn-warning">📨 Test Kirim</button>
+                                    <button onclick="deleteGroup(${g.id})" class="btn-danger">🗑️ Hapus</button>
+                                </div>
+                            </div>
+                        `;
+                    });
                     container.innerHTML = html;
                 } catch(e) { console.log(e); }
             }
+            
+            async function testGroup(groupId) {
+                if (!confirm('Kirim test promo ke grup ini?')) return;
+                const response = await fetch(`/api/test_group/${groupId}`, { method: 'POST' });
+                const result = await response.json();
+                alert(result.message);
+            }
+            
+            async function deleteGroup(groupId) {
+                if (!confirm('Yakin ingin menghapus grup ini?')) return;
+                const response = await fetch(`/api/group/${groupId}`, { method: 'DELETE' });
+                if (response.ok) {
+                    alert('✅ Grup berhasil dihapus!');
+                    loadGroups();
+                    loadStats();
+                } else {
+                    alert('❌ Gagal menghapus grup');
+                }
+            }
+            
             async function loadUsers() {
                 try {
                     const response = await fetch('/api/users');
@@ -539,11 +838,25 @@ def admin_panel():
                     if (!users.length) { container.innerHTML = '<p>Belum ada user yang terdaftar.</p>'; return; }
                     let html = '<table><thead><tr><th>User ID</th></tr></thead><tbody>';
                     users.forEach(u => { html += `<tr><td>${u}</td></tr>`; });
-                    html += '</tbody></table>';
+                    html += '</tbody>这些';
                     container.innerHTML = html;
                 } catch(e) { console.log(e); }
             }
+            
+            async function loadSettings() {
+                try {
+                    const response = await fetch('/api/stats');
+                    const data = await response.json();
+                    document.getElementById('broadcastToGroups').value = data.broadcast_to_groups;
+                    document.getElementById('sendImage').value = data.send_image;
+                    document.getElementById('websiteUrl').value = data.website_url || 'https://siteq.link/kajian4d';
+                    document.getElementById('welcomeMessage').value = data.welcome_message || '';
+                    document.getElementById('intervalMinutes').value = Math.floor(data.interval / 60) || 20;
+                } catch(e) { console.log(e); }
+            }
+            
             async function logout() { if(confirm('Yakin ingin logout?')) window.location.href = '/logout'; }
+            
             document.getElementById('addPromoForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const promo = {
@@ -557,6 +870,31 @@ def admin_panel():
                 if(response.ok) { alert('✅ Promo berhasil ditambahkan!'); document.getElementById('addPromoForm').reset(); loadPromos(); loadStats(); }
                 else alert('❌ Gagal menambahkan promo');
             });
+            
+            document.getElementById('addGroupForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const group = {
+                    id: document.getElementById('groupId').value,
+                    name: document.getElementById('groupName').value
+                };
+                const response = await fetch('/api/group', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(group) });
+                if(response.ok) { alert('✅ Grup berhasil ditambahkan!'); document.getElementById('addGroupForm').reset(); loadGroups(); loadStats(); }
+                else alert('❌ Gagal menambahkan grup');
+            });
+            
+            document.getElementById('settingsForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const settings = {
+                    broadcast_to_groups: document.getElementById('broadcastToGroups').value === 'true',
+                    send_image: document.getElementById('sendImage').value === 'true',
+                    website_url: document.getElementById('websiteUrl').value,
+                    welcome_message: document.getElementById('welcomeMessage').value
+                };
+                const response = await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(settings) });
+                if(response.ok) { alert('✅ Pengaturan berhasil disimpan!'); loadStats(); }
+                else alert('❌ Gagal menyimpan pengaturan');
+            });
+            
             async function editPromo(id) {
                 const response = await fetch(`/api/promo/${id}`);
                 const promo = await response.json();
@@ -568,6 +906,7 @@ def admin_panel():
                 document.getElementById('editButtonUrl').value = promo.button_url;
                 document.getElementById('editModal').style.display = 'flex';
             }
+            
             document.getElementById('editPromoForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const id = document.getElementById('editPromoId').value;
@@ -582,6 +921,7 @@ def admin_panel():
                 if(response.ok) { alert('✅ Promo berhasil diupdate!'); closeModal(); loadPromos(); }
                 else alert('❌ Gagal update promo');
             });
+            
             async function deletePromo() {
                 const id = document.getElementById('editPromoId').value;
                 if(!confirm('Yakin ingin menghapus promo ini?')) return;
@@ -589,20 +929,17 @@ def admin_panel():
                 if(response.ok) { alert('✅ Promo berhasil dihapus!'); closeModal(); loadPromos(); loadStats(); }
                 else alert('❌ Gagal hapus promo');
             }
+            
             async function deletePromoById(id) {
                 if(!confirm('Yakin ingin menghapus promo ini?')) return;
                 const response = await fetch(`/api/promo/${id}`, { method:'DELETE' });
                 if(response.ok) { alert('✅ Promo berhasil dihapus!'); loadPromos(); loadStats(); }
                 else alert('❌ Gagal hapus promo');
             }
-            async function broadcastPromo(id) {
-                if(!confirm('Kirim promo ini ke semua user?')) return;
-                const response = await fetch(`/api/broadcast_promo/${id}`, { method:'POST' });
-                const result = await response.json();
-                alert(`✅ Broadcast selesai!\\n📨 Terkirim: ${result.sent} user\\n❌ Gagal: ${result.failed} user`);
-            }
+            
             function closeModal() { document.getElementById('editModal').style.display = 'none'; }
-            loadStats(); loadPromos();
+            
+            loadStats(); loadPromos(); loadSettings(); loadBroadcastHistory();
             setInterval(() => { loadStats(); if(document.getElementById('tab-promos').classList.contains('active')) loadPromos(); }, 30000);
         </script>
     </body>
@@ -613,6 +950,46 @@ def admin_panel():
 @app.route('/api/users')
 def api_users():
     return jsonify(list(load_users()))
+
+@app.route('/api/groups')
+def api_groups():
+    return jsonify(load_groups())
+
+@app.route('/api/group', methods=['POST'])
+def add_group():
+    data = request.json
+    groups = load_groups()
+    groups.append({
+        'id': data.get('id'),
+        'name': data.get('name'),
+        'added_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
+    save_groups(groups)
+    return jsonify({'status': 'ok'})
+
+@app.route('/api/group/<group_id>', methods=['DELETE'])
+def delete_group(group_id):
+    groups = load_groups()
+    groups = [g for g in groups if str(g.get('id')) != str(group_id)]
+    save_groups(groups)
+    return jsonify({'status': 'ok'})
+
+@app.route('/api/test_group/<group_id>', methods=['POST'])
+def test_group(group_id):
+    groups = load_groups()
+    group = next((g for g in groups if str(g.get('id')) == str(group_id)), None)
+    if not group:
+        return jsonify({'message': 'Grup tidak ditemukan'}), 404
+    
+    promo = promos[0] if promos else None
+    if not promo:
+        return jsonify({'message': 'Belum ada promo untuk test'}), 404
+    
+    result = send_to_group(group_id, promo)
+    if result:
+        return jsonify({'message': f'✅ Test berhasil dikirim ke {group.get("name")}'})
+    else:
+        return jsonify({'message': f'❌ Gagal mengirim ke {group.get("name")}. Pastikan bot sudah menjadi admin di grup!'})
 
 @app.route('/api/promos')
 def api_promos_list():
@@ -667,25 +1044,102 @@ def delete_promo(promo_id):
         json.dump({'promos': promos, 'settings': promo_settings}, f, indent=2, ensure_ascii=False)
     return jsonify({'status': 'ok'})
 
-@app.route('/api/broadcast_promo/<int:promo_id>', methods=['POST'])
-def broadcast_promo(promo_id):
-    promo = next((p for p in promos if p.get('id') == promo_id), None)
-    if not promo:
-        return jsonify({'error': 'Promo not found'}), 404
+@app.route('/api/broadcast_control/<action>', methods=['POST'])
+def broadcast_control(action):
+    global broadcast_enabled, scheduler
     
+    if action == 'start':
+        if broadcast_enabled:
+            return jsonify({'success': False, 'message': 'Broadcast sudah berjalan'})
+        broadcast_enabled = True
+        restart_scheduler()
+        return jsonify({'success': True, 'message': 'Broadcast telah diaktifkan!'})
+    
+    elif action == 'stop':
+        if not broadcast_enabled:
+            return jsonify({'success': False, 'message': 'Broadcast sudah dimatikan'})
+        broadcast_enabled = False
+        if scheduler:
+            try:
+                scheduler.remove_job(broadcast_job_id)
+            except:
+                pass
+        return jsonify({'success': True, 'message': 'Broadcast telah dimatikan!'})
+    
+    return jsonify({'success': False, 'message': 'Action tidak dikenal'})
+
+@app.route('/api/set_interval', methods=['POST'])
+def set_interval():
+    global promo_settings
+    
+    data = request.json
+    new_interval = data.get('interval_minutes', 20)
+    
+    promo_settings['broadcast_interval_minutes'] = new_interval
+    
+    with open(PROMO_FILE, 'w', encoding='utf-8') as f:
+        json.dump({'promos': promos, 'settings': promo_settings}, f, indent=2, ensure_ascii=False)
+    
+    if broadcast_enabled:
+        restart_scheduler()
+    
+    return jsonify({'success': True, 'message': f'Interval diubah menjadi {new_interval} menit'})
+
+@app.route('/api/test_broadcast', methods=['POST'])
+def test_broadcast_api():
+    global broadcast_count, broadcast_history
+    
+    if not promos:
+        return jsonify({'sent': 0, 'failed': 0, 'message': 'Tidak ada promo'})
+    
+    promo = random.choice(promos)
     users_list = list(load_users())
+    broadcast_to_groups = promo_settings.get('broadcast_to_groups', True)
+    groups_list = load_groups() if broadcast_to_groups else []
+    
     success = 0
     failed = 0
     
     for user_id in users_list:
         result = send_promo_with_image(user_id, promo)
-        if result and result.get('ok'):
+        if result and result.get("ok"):
             success += 1
         else:
             failed += 1
         time.sleep(0.3)
     
+    for group in groups_list:
+        if send_to_group(group.get('id'), promo):
+            success += 1
+        else:
+            failed += 1
+        time.sleep(0.5)
+    
     return jsonify({'sent': success, 'failed': failed})
+
+@app.route('/api/broadcast_history')
+def api_broadcast_history():
+    return jsonify(broadcast_history)
+
+@app.route('/api/settings', methods=['POST'])
+def update_settings():
+    global promo_settings, config
+    
+    data = request.json
+    
+    promo_settings['broadcast_to_groups'] = data.get('broadcast_to_groups', True)
+    promo_settings['send_image'] = data.get('send_image', True)
+    
+    config['website_url'] = data.get('website_url', 'https://siteq.link/kajian4d')
+    config['welcome_message'] = data.get('welcome_message', '🌟 SELAMAT DATANG DI KAJIAN4D OFFICIAL 🌟')
+    
+    with open(PROMO_FILE, 'w', encoding='utf-8') as f:
+        json.dump({'promos': promos, 'settings': promo_settings}, f, indent=2, ensure_ascii=False)
+    
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+    
+    return jsonify({'status': 'ok'})
 
 # ============ WEBHOOK ============
 @app.route('/webhook', methods=['POST'])
@@ -765,19 +1219,15 @@ Member yang sudah share kontak berhak mendapatkan bonus special!
             elif text == "/status" and str(chat_id) == str(ADMIN_ID):
                 status_msg = f"""📊 *STATUS BOT*
 
-🔄 Status: ✅ AKTIF
+🔄 Status: {'✅ AKTIF' if broadcast_enabled else '⏸️ MATI'}
 👥 Total user: {len(load_users())}
 📞 Total kontak: {get_contact_count()}
+👥 Total grup: {len(load_groups())}
 🎁 Total promo: {len(promos)}
 ⏱️ Interval: {promo_settings.get('broadcast_interval_minutes', 20)} MENIT
 📢 Total broadcast: {broadcast_count} kali
 
-📅 Last update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-📋 *History Broadcast:*
-"""
-                for i, h in enumerate(broadcast_history[:5], 1):
-                    status_msg += f"\n{i}. {h['time']}\n   {h['title'][:30]}... (✅{h['success']} user)"
+📅 Last update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
                 send_telegram_message(chat_id, status_msg)
             elif text == "/test_broadcast" and str(chat_id) == str(ADMIN_ID):
                 send_telegram_message(chat_id, "⏳ Menjalankan broadcast test...")
@@ -817,121 +1267,4 @@ Member yang sudah share kontak berhak mendapatkan bonus special!
                     if promo:
                         send_promo_with_image(chat_id, promo)
                     else:
-                        send_telegram_message(chat_id, "Promo tidak ditemukan.")
-                except Exception as e:
-                    print(f"Error: {e}")
-            
-            url_answer = f"https://api.telegram.org/bot{TOKEN}/answerCallbackQuery"
-            requests.post(url_answer, json={"callback_query_id": callback["id"]})
-        
-        return jsonify({"status": "ok"}), 200
-        
-    except Exception as e:
-        print(f"Webhook error: {e}")
-        return jsonify({"status": "error"}), 200
-
-# ============ FLASK ROUTES LAINNYA ============
-@app.route('/')
-def home():
-    return """
-    <html>
-    <head><title>KAJIAN4D Bot</title></head>
-    <body style="font-family: Arial; text-align: center; padding: 50px;">
-        <h1>🤖 KAJIAN4D BOT TELEGRAM</h1>
-        <p style="color: green; font-size: 20px;">✅ BOT AKTIF!</p>
-        <p>🔄 Broadcast: <strong>AKTIF setiap 20 menit</strong></p>
-        <p>🖼️ Gambar: <strong>AKTIF</strong></p>
-        <p>📞 Share Kontak: <strong>AKTIF</strong></p>
-        <hr>
-        <p>📱 Kirim <code>/start</code> ke bot di Telegram</p>
-        <p>🔧 <a href="/set_webhook">Set Webhook</a></p>
-        <p>📊 <a href="/api/stats">Statistik</a></p>
-        <p>👑 <a href="/admin">Admin Panel</a></p>
-    </body>
-    </html>
-    """
-
-@app.route('/set_webhook')
-def set_webhook():
-    render_url = os.environ.get('RENDER_EXTERNAL_URL', request.host_url)
-    if render_url.endswith('/'):
-        render_url = render_url[:-1]
-    webhook_url = f"{render_url}/webhook"
-    
-    requests.post(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook")
-    url = f"https://api.telegram.org/bot{TOKEN}/setWebhook"
-    response = requests.post(url, json={"url": webhook_url})
-    result = response.json()
-    
-    if result.get("ok"):
-        return f"✅ Webhook berhasil! URL: {webhook_url}<br>🔄 Broadcast akan berjalan otomatis!<br><br><a href='/admin'>Klik disini untuk masuk Admin Panel</a>"
-    else:
-        return f"❌ Gagal: {result}"
-
-@app.route('/health')
-def health():
-    return "OK", 200
-
-@app.route('/api/stats')
-def api_stats():
-    return jsonify({
-        'users': len(load_users()),
-        'contacts': get_contact_count(),
-        'promos': len(promos),
-        'broadcast_count': broadcast_count,
-        'interval': promo_settings.get('broadcast_interval_minutes', 20),
-        'status': 'active',
-        'website_url': config.get('website_url'),
-        'welcome_message': config.get('welcome_message'),
-        'last_broadcasts': broadcast_history[:5]
-    })
-
-@app.route('/api/contacts')
-def api_contacts():
-    return jsonify({
-        'total': get_contact_count(),
-        'contacts': get_all_contacts()
-    })
-
-@app.route('/api/trigger_broadcast', methods=['POST'])
-def trigger_broadcast():
-    threading.Thread(target=do_broadcast).start()
-    return jsonify({'status': 'broadcast_started', 'time': datetime.now().isoformat()})
-
-# ============ MAIN ============
-if __name__ == "__main__":
-    print("=" * 60)
-    print("🤖 KAJIAN4D BOT TELEGRAM - DENGAN BROADCAST OTOMATIS")
-    print("=" * 60)
-    
-    is_main_process = os.environ.get('WERKZEUG_RUN_MAIN') != 'true'
-    
-    try:
-        url = f"https://api.telegram.org/bot{TOKEN}/getMe"
-        response = requests.get(url, timeout=10)
-        if response.ok:
-            bot_info = response.json().get("result")
-            print(f"✅ Bot terhubung: @{bot_info.get('username')}")
-        else:
-            print("❌ Token tidak valid!")
-    except Exception as e:
-        print(f"❌ Error: {e}")
-    
-    print(f"✅ Total promo: {len(promos)}")
-    print(f"👥 Total user: {len(load_users())}")
-    print(f"📞 Total kontak: {get_contact_count()}")
-    print("=" * 60)
-    
-    if is_main_process:
-        scheduler = start_scheduler()
-    else:
-        print("⚠️ Debug reloader mode - Scheduler tidak di-start di proses reloader")
-    
-    print("\n📱 Buka URL /set_webhook untuk mengaktifkan webhook")
-    print("📱 Kirim /start ke bot di Telegram")
-    print("👑 Admin Panel: /admin (password: admin123)")
-    print("📢 Broadcast akan berjalan OTOMATIS setiap 20 menit!")
-    print("=" * 60)
-    
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+                        send_telegram_message(
