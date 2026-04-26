@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - KAJIAN4D Bot</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            background: linear-gradient(135deg, #00d4ff, #ff6b6b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .stat-card h3 {
+            font-size: 2em;
+            margin-bottom: 5px;
+        }
+        
+        .stat-card p {
+            opacity: 0.8;
+        }
+        
+        .section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .section h2 {
+            margin-bottom: 20px;
+            color: #00d4ff;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        th {
+            background: rgba(0,212,255,0.2);
+            color: #00d4ff;
+        }
+        
+        tr:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        
+        button, .button {
+            background: linear-gradient(135deg, #00d4ff, #0099cc);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            margin: 5px;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ff6b6b, #cc4444);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #51cf66, #37b24d);
+        }
+        
+        input, textarea, select {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            color: white;
+        }
+        
+        textarea {
+            min-height: 100px;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .modal-content {
+            background: #1a1a2e;
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .close {
+            float: right;
+            font-size: 28px;
+            cursor: pointer;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        
+        .tab.active {
+            background: #00d4ff;
+            color: #1a1a2e;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .alert-success {
+            background: rgba(81,207,102,0.2);
+            border: 1px solid #51cf66;
+        }
+        
+        .alert-error {
+            background: rgba(255,107,107,0.2);
+            border: 1px solid #ff6b6b;
+        }
+        
+        .promo-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+        }
+        
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .tabs {
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Admin Panel - KAJIAN4D Bot</h1>
+        
+        <div class="stats-grid" id="stats">
+            <div class="stat-card">
+                <h3 id="totalUsers">0</h3>
+                <p>Total User</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="totalPromos">0</h3>
+                <p>Total Promo</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="broadcastInterval">1</h3>
+                <p>Broadcast (Jam)</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="randomMode">Random</h3>
+                <p>Mode Promo</p>
+            </div>
+        </div>
+        
+        <div class="tabs">
+            <div class="tab active" onclick="showTab('promos')">📋 Daftar Promo</div>
+            <div class="tab" onclick="showTab('add')">➕ Tambah Promo</div>
+            <div class="tab" onclick="showTab('broadcast')">📢 Broadcast</div>
+            <div class="tab" onclick="showTab('settings')">⚙️ Pengaturan</div>
+            <div class="tab" onclick="showTab('password')">🔑 Ubah Password</div>
+            <div class="tab" onclick="showTab('users')">👥 User List</div>
+            <div class="tab" onclick="logout()">🚪 Logout</div>
+        </div>
+        
+        <!-- Tab Ubah Password -->
+        <div id="tab-password" class="tab-content">
+            <div class="section">
+                <h2>🔑 Ubah Password Admin</h2>
+                <form id="changePasswordForm">
+                    <input type="password" id="oldPassword" placeholder="Password Lama" required>
+                    <input type="password" id="newPassword" placeholder="Password Baru (min 6 karakter)" required>
+                    <input type="password" id="confirmPassword" placeholder="Konfirmasi Password Baru" required>
+                    <button type="submit" class="btn-success">💾 Simpan Password Baru</button>
+                </form>
+                <div id="passwordMsg" style="margin-top: 15px;"></div>
+            </div>
+        </div>
+
+        <!-- Tab Promo List -->
+        <div id="tab-promos" class="tab-content active">
+            <div class="section">
+                <h2>📋 Daftar Semua Promo</h2>
+                <div id="promosList"></div>
+            </div>
+        </div>
+        
+        <!-- Tab Tambah Promo -->
+        <div id="tab-add" class="tab-content">
+            <div class="section">
+                <h2>➕ Tambah Promo Baru</h2>
+                <form id="addPromoForm">
+                    <input type="text" id="promoTitle" placeholder="Judul Promo" required>
+                    <textarea id="promoMessage" placeholder="Pesan Promo (bisa pakai *bold*)" required></textarea>
+                    <input type="url" id="promoImageUrl" placeholder="URL Gambar (opsional)">
+                    <input type="text" id="promoButtonText" placeholder="Teks Tombol" value="🔥 Klaim Bonus">
+                    <input type="url" id="promoButtonUrl" placeholder="URL Tombol" value="https://siteq.link/kajian4d">
+                    <button type="submit" class="btn-success">💾 Simpan Promo</button>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Tab Broadcast -->
+        <div id="tab-broadcast" class="tab-content">
+            <div class="section">
+                <h2>📢 Broadcast ke Semua User</h2>
+                <form id="broadcastForm">
+                    <textarea id="broadcastMessage" placeholder="Pesan broadcast..." required></textarea>
+                    <input type="url" id="broadcastImageUrl" placeholder="URL Gambar (opsional)">
+                    <input type="text" id="broadcastButtonText" placeholder="Teks Tombol" value="🔥 Klaim Bonus">
+                    <input type="url" id="broadcastButtonUrl" placeholder="URL Tombol" value="https://siteq.link/kajian4d">
+                    <button type="submit" class="btn-success">📨 Kirim Broadcast</button>
+                </form>
+            </div>
+            
+            <div class="section">
+                <h2>🎯 Broadcast Promo yang Sudah Ada</h2>
+                <div id="broadcastPromosList"></div>
+            </div>
+        </div>
+        
+        <!-- Tab Settings -->
+        <div id="tab-settings" class="tab-content">
+            <div class="section">
+                <h2>⚙️ Pengaturan Bot</h2>
+                <form id="settingsForm">
+                    <label>Interval Broadcast (Jam):</label>
+                    <input type="number" id="intervalHours" min="1" max="24" value="1">
+                    
+                    <label>Mode Random Promo:</label>
+                    <select id="randomOrder">
+                        <option value="true">Random (Acak)</option>
+                        <option value="false">Urut (Sequential)</option>
+                    </select>
+                    
+                    <label>Kirim Gambar:</label>
+                    <select id="sendImage">
+                        <option value="true">Ya</option>
+                        <option value="false">Tidak</option>
+                    </select>
+                    
+                    <label>URL Website:</label>
+                    <input type="url" id="websiteUrl" value="https://siteq.link/kajian4d">
+                    
+                    <label>Pesan Selamat Datang:</label>
+                    <textarea id="welcomeMessage" rows="5"></textarea>
+                    
+                    <button type="submit" class="btn-success">💾 Simpan Pengaturan</button>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Tab Users -->
+        <div id="tab-users" class="tab-content">
+            <div class="section">
+                <h2>👥 Daftar User Terdaftar</h2>
+                <div id="usersList"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal untuk edit promo -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2>✏️ Edit Promo</h2>
+            <form id="editPromoForm">
+                <input type="hidden" id="editPromoId">
+                <input type="text" id="editTitle" placeholder="Judul Promo" required>
+                <textarea id="editMessage" placeholder="Pesan Promo" required></textarea>
+                <input type="url" id="editImageUrl" placeholder="URL Gambar">
+                <input type="text" id="editButtonText" placeholder="Teks Tombol">
+                <input type="url" id="editButtonUrl" placeholder="URL Tombol">
+                <button type="submit" class="btn-success">💾 Update</button>
+                <button type="button" class="btn-danger" onclick="deletePromo()">🗑️ Hapus</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        // Load data awal
+        loadStats();
+        loadPromos();
+        loadSettings();
+        
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+            event.target.classList.add('active');
+            
+            if (tabName === 'users') loadUsers();
+            if (tabName === 'broadcast') loadBroadcastPromos();
+        }
+        
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                document.getElementById('totalUsers').textContent = data.total_users;
+                document.getElementById('totalPromos').textContent = data.total_promos;
+                document.getElementById('broadcastInterval').textContent = data.broadcast_interval;
+                document.getElementById('randomMode').textContent = data.random_order ? 'Random' : 'Urut';
+            } catch(e) {
+                console.log('Error loading stats:', e);
+            }
+        }
+        
+        async function loadPromos() {
+            try {
+                const response = await fetch('/api/promos');
+                const promos = await response.json();
+                
+                const container = document.getElementById('promosList');
+                if (promos.length === 0) {
+                    container.innerHTML = '<p>Belum ada promo. Tambahkan promo baru!</p>';
+                    return;
+                }
+                
+                let html = '<table><thead><tr><th>ID</th><th>Judul</th><th>Aksi</th></tr></thead><tbody>';
+                promos.forEach(promo => {
+                    html += `
+                        <tr>
+                            <td>${promo.id}</td>
+                            <td>${promo.title}</td>
+                            <td>
+                                <button onclick="editPromo(${promo.id})">✏️ Edit</button>
+                                <button class="btn-danger" onclick="deletePromoById(${promo.id})">🗑️ Hapus</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } catch(e) {
+                console.log('Error loading promos:', e);
+            }
+        }
+        
+        async function loadBroadcastPromos() {
+            try {
+                const response = await fetch('/api/promos');
+                const promos = await response.json();
+                
+                const container = document.getElementById('broadcastPromosList');
+                if (promos.length === 0) {
+                    container.innerHTML = '<p>Belum ada promo.</p>';
+                    return;
+                }
+                
+                let html = '<div style="display: flex; flex-wrap: wrap; gap: 10px;">';
+                promos.forEach(promo => {
+                    html += `
+                        <button onclick="broadcastPromo(${promo.id})" style="flex: 1; min-width: 200px;">
+                            📢 ${promo.title}
+                        </button>
+                    `;
+                });
+                html += '</div>';
+                container.innerHTML = html;
+            } catch(e) {
+                console.log('Error loading broadcast promos:', e);
+            }
+        }
+        
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/users');
+                const users = await response.json();
+                
+                const container = document.getElementById('usersList');
+                if (users.length === 0) {
+                    container.innerHTML = '<p>Belum ada user yang terdaftar.</p>';
+                    return;
+                }
+                
+                let html = '<table><thead><tr><th>User ID</th></tr></thead><tbody>';
+                users.forEach(userId => {
+                    html += `<tr><td>${userId}</td></tr>`;
+                });
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } catch(e) {
+                console.log('Error loading users:', e);
+            }
+        }
+        
+        async function loadSettings() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                document.getElementById('intervalHours').value = data.broadcast_interval;
+                document.getElementById('randomOrder').value = data.random_order;
+                document.getElementById('sendImage').value = data.send_image;
+                document.getElementById('websiteUrl').value = data.website_url;
+                document.getElementById('welcomeMessage').value = data.welcome_message || '';
+            } catch(e) {
+                console.log('Error loading settings:', e);
+            }
+        }
+        
+        // Fungsi Logout
+        async function logout() {
+            if (confirm('Yakin ingin logout?')) {
+                try {
+                    await fetch('/api/logout', {method: 'POST'});
+                    window.location.href = '/login';
+                } catch(e) {
+                    console.log('Error logout:', e);
+                }
+            }
+        }
+        
+        // Fungsi Ubah Password
+        document.getElementById('changePasswordForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const oldPassword = document.getElementById('oldPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            
+            if (newPassword !== confirmPassword) {
+                document.getElementById('passwordMsg').innerHTML = '<div class="alert alert-error">❌ Password baru tidak cocok!</div>';
+                return;
+            }
+            
+            if (newPassword.length < 6) {
+                document.getElementById('passwordMsg').innerHTML = '<div class="alert alert-error">❌ Password minimal 6 karakter!</div>';
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/change_password', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        old_password: oldPassword,
+                        new_password: newPassword
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('passwordMsg').innerHTML = '<div class="alert alert-success">✅ Password berhasil diubah! Silakan login ulang.</div>';
+                    document.getElementById('changePasswordForm').reset();
+                    setTimeout(() => {
+                        logout();
+                    }, 2000);
+                } else {
+                    document.getElementById('passwordMsg').innerHTML = `<div class="alert alert-error">❌ ${result.error}</div>`;
+                }
+            } catch(e) {
+                document.getElementById('passwordMsg').innerHTML = '<div class="alert alert-error">❌ Gagal mengubah password</div>';
+            }
+        });
+        
+        document.getElementById('addPromoForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const promo = {
+                title: document.getElementById('promoTitle').value,
+                message: document.getElementById('promoMessage').value,
+                image_url: document.getElementById('promoImageUrl').value,
+                button_text: document.getElementById('promoButtonText').value,
+                button_url: document.getElementById('promoButtonUrl').value
+            };
+            
+            const response = await fetch('/api/promo', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(promo)
+            });
+            
+            if (response.ok) {
+                alert('✅ Promo berhasil ditambahkan!');
+                document.getElementById('addPromoForm').reset();
+                loadPromos();
+                loadStats();
+            } else {
+                alert('❌ Gagal menambahkan promo');
+            }
+        });
+        
+        async function editPromo(id) {
+            const response = await fetch(`/api/promo/${id}`);
+            const promo = await response.json();
+            
+            document.getElementById('editPromoId').value = promo.id;
+            document.getElementById('editTitle').value = promo.title;
+            document.getElementById('editMessage').value = promo.message;
+            document.getElementById('editImageUrl').value = promo.image_url || '';
+            document.getElementById('editButtonText').value = promo.button_text;
+            document.getElementById('editButtonUrl').value = promo.button_url;
+            
+            document.getElementById('editModal').style.display = 'flex';
+        }
+        
+        document.getElementById('editPromoForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const id = document.getElementById('editPromoId').value;
+            const promo = {
+                title: document.getElementById('editTitle').value,
+                message: document.getElementById('editMessage').value,
+                image_url: document.getElementById('editImageUrl').value,
+                button_text: document.getElementById('editButtonText').value,
+                button_url: document.getElementById('editButtonUrl').value
+            };
+            
+            const response = await fetch(`/api/promo/${id}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(promo)
+            });
+            
+            if (response.ok) {
+                alert('✅ Promo berhasil diupdate!');
+                closeModal();
+                loadPromos();
+            } else {
+                alert('❌ Gagal update promo');
+            }
+        });
+        
+        async function deletePromo() {
+            const id = document.getElementById('editPromoId').value;
+            if (!confirm('Yakin ingin menghapus promo ini?')) return;
+            
+            const response = await fetch(`/api/promo/${id}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                alert('✅ Promo berhasil dihapus!');
+                closeModal();
+                loadPromos();
+                loadStats();
+            } else {
+                alert('❌ Gagal hapus promo');
+            }
+        }
+        
+        async function deletePromoById(id) {
+            if (!confirm('Yakin ingin menghapus promo ini?')) return;
+            
+            const response = await fetch(`/api/promo/${id}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                alert('✅ Promo berhasil dihapus!');
+                loadPromos();
+                loadStats();
+            } else {
+                alert('❌ Gagal hapus promo');
+            }
+        }
+        
+        async function broadcastPromo(id) {
+            if (!confirm('Kirim promo ini ke semua user?')) return;
+            
+            const response = await fetch(`/api/broadcast_promo/${id}`, {
+                method: 'POST'
+            });
+            
+            const result = await response.json();
+            alert(`✅ Broadcast selesai!\n📨 Terkirim: ${result.sent} user\n❌ Gagal: ${result.failed} user`);
+        }
+        
+        document.getElementById('broadcastForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (!confirm('Kirim broadcast ke semua user?')) return;
+            
+            const broadcast = {
+                message: document.getElementById('broadcastMessage').value,
+                image_url: document.getElementById('broadcastImageUrl').value,
+                button_text: document.getElementById('broadcastButtonText').value,
+                button_url: document.getElementById('broadcastButtonUrl').value
+            };
+            
+            const response = await fetch('/api/broadcast', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(broadcast)
+            });
+            
+            const result = await response.json();
+            alert(`✅ Broadcast selesai!\n📨 Terkirim: ${result.sent} user\n❌ Gagal: ${result.failed} user`);
+            document.getElementById('broadcastForm').reset();
+        });
+        
+        document.getElementById('settingsForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const settings = {
+                broadcast_interval_hours: parseInt(document.getElementById('intervalHours').value),
+                random_order: document.getElementById('randomOrder').value === 'true',
+                send_image: document.getElementById('sendImage').value === 'true',
+                website_url: document.getElementById('websiteUrl').value,
+                welcome_message: document.getElementById('welcomeMessage').value
+            };
+            
+            const response = await fetch('/api/settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(settings)
+            });
+            
+            if (response.ok) {
+                alert('✅ Pengaturan berhasil disimpan!');
+                loadStats();
+            } else {
+                alert('❌ Gagal menyimpan pengaturan');
+            }
+        });
+        
+        function closeModal() {
+            document.getElementById('editModal').style.display = 'none';
+        }
+        
+        setInterval(() => {
+            loadStats();
+            if (document.getElementById('tab-promos').classList.contains('active')) {
+                loadPromos();
+            }
+        }, 30000);
+    </script>
+</body>
+</html>
