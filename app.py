@@ -9,8 +9,8 @@ import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # ========== KONFIGURASI ==========
-TOKEN = "6546544:AAHTR0awcVGQROy0iX3lmdtPGbxo8HCaW5U"
-ADMIN_ID = 515154848
+TOKEN = "8736769212:AAHTR0awcVGQROy0iX3lmdtPGbxo8HCaW5U"
+ADMIN_ID = 8736769212
 # =================================
 
 app = Flask(__name__)
